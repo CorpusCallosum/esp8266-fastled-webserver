@@ -28,7 +28,7 @@ extern "C" {
 }
 
 #include <ESP8266WiFi.h>
-//#include <ESP8266mDNS.h>
+#include <ESP8266mDNS.h>
 #include <ESP8266WebServer.h>
 #include <ESP8266HTTPUpdateServer.h>
 //#include <WebSocketsServer.h>
@@ -52,7 +52,7 @@ ESP8266HTTPUpdateServer httpUpdateServer;
 
 #include "FSBrowser.h"
 
-#define DATA_PIN      D5
+#define DATA_PIN      14//D5
 #define LED_TYPE      WS2811
 #define COLOR_ORDER   RGB
 #define NUM_LEDS      200
@@ -60,7 +60,7 @@ ESP8266HTTPUpdateServer httpUpdateServer;
 #define MILLI_AMPS         2000 // IMPORTANT: set the max milli-Amps of your power supply (4A = 4000mA)
 #define FRAMES_PER_SECOND  120  // here you can control the speed. With the Access Point / Web Server the animations run a bit slower.
 
-const bool apMode = false;
+const bool apMode = false; //AP mode turns the feather into a wifi router you can connect to directly
 
 #include "Secrets.h" // this file is intentionally not included in the sketch, so nobody accidentally commits their secret information.
 // create a Secrets.h file with the following:
@@ -292,10 +292,49 @@ void setup() {
   else
   {
     WiFi.mode(WIFI_STA);
+   // WiFi.setAutoConnect(false);
     Serial.printf("Connecting to %s\n", ssid);
-    if (String(WiFi.SSID()) != String(ssid)) {
+    String h = "light";
+
+//**SET UP HOSTNAME******
+        
+     WiFi.hostname(h);
+     //MDNS.begin(h);
+
+      //Serial.println("hostname is set to:");
+      //Serial.print(WiFi.hostname());
+
+      // WiFi.begin(ssid, password);
+
+       
+      
+        // Start TCP (HTTP) server
+     //   server.begin();
+       // Serial.println("TCP server started");
+      
+      
+     
+   
+
+    //how is it already connected? if wifi.begin has not been called yet?
+    //some kinda auto-connect happening?
+    //if (String(WiFi.SSID()) != String(ssid)) {
       WiFi.begin(ssid, password);
-    }
+    //}
+
+    // Wait for connection
+        while (WiFi.status() != WL_CONNECTED) {
+          delay(500);
+          Serial.print(".");
+        }
+
+       if (!MDNS.begin(h)) {
+      Serial.println("Error setting up MDNS responder!");
+          while (1) {
+            delay(1000);
+          }
+        }
+    
   }
 
   httpUpdateServer.setup(&webServer);
@@ -434,6 +473,9 @@ void setup() {
   webServer.begin();
   Serial.println("HTTP web server started");
 
+    // Add service to MDNS-SD
+    MDNS.addService("http", "tcp", 80);
+
   //  webSocketsServer.begin();
   //  webSocketsServer.onEvent(webSocketEvent);
   //  Serial.println("Web socket server started");
@@ -464,6 +506,8 @@ void broadcastString(String name, String value)
 }
 
 void loop() {
+  MDNS.update(); //THIS IS WHAT DID IT!!!
+  
   // Add entropy to random number generator; we use a lot of it.
   random16_add_entropy(random(65535));
 
@@ -491,6 +535,9 @@ void loop() {
       Serial.print("Connected! Open http://");
       Serial.print(WiFi.localIP());
       Serial.println(" in your browser");
+
+      Serial.print("Hostname is: ");
+     Serial.println(WiFi.hostname());
     }
   }
 
