@@ -19,7 +19,9 @@
 //#define FASTLED_ALLOW_INTERRUPTS 1
 //#define INTERRUPT_THRESHOLD 1
 #define FASTLED_INTERRUPT_RETRY_COUNT 0
-#define FASTLED_ALLOW_INTERRUPTS 0
+
+//disable interrupts to fix flickering - https://github.com/FastLED/FastLED/wiki/Interrupt-problems
+#define FASTLED_ALLOW_INTERRUPTS 0 
 
 
 #include <FastLED.h>
@@ -62,7 +64,7 @@ ESP8266HTTPUpdateServer httpUpdateServer;
 #define COLOR_ORDER   GRB //hypertube uses GRB
 #define NUM_LEDS      200
 
-#define MILLI_AMPS         2000 // IMPORTANT: set the max milli-Amps of your power supply (4A = 4000mA)
+#define MILLI_AMPS         2400 // IMPORTANT: set the max milli-Amps of your power supply (4A = 4000mA)
 #define FRAMES_PER_SECOND  120  // here you can control the speed. With the Access Point / Web Server the animations run a bit slower.
 
 String nameString;
