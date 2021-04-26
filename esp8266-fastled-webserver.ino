@@ -19,6 +19,8 @@
 //#define FASTLED_ALLOW_INTERRUPTS 1
 //#define INTERRUPT_THRESHOLD 1
 #define FASTLED_INTERRUPT_RETRY_COUNT 0
+#define FASTLED_ALLOW_INTERRUPTS 0
+
 
 #include <FastLED.h>
 FASTLED_USING_NAMESPACE
@@ -31,10 +33,12 @@ extern "C" {
 #include <ESP8266mDNS.h>
 #include <ESP8266WebServer.h>
 #include <ESP8266HTTPUpdateServer.h>
+#include <ESP8266HTTPClient.h>
 //#include <WebSocketsServer.h>
 #include <FS.h>
 #include <EEPROM.h>
 //#include <IRremoteESP8266.h>
+#include <WiFiManager.h> // https://github.com/tzapu/WiFiManager/tree/development
 #include "GradientPalettes.h"
 
 #define ARRAY_SIZE(A) (sizeof(A) / sizeof((A)[0]))
@@ -46,32 +50,24 @@ extern "C" {
 
 //#include "Commands.h"
 
+WiFiManager wifiManager;
 ESP8266WebServer webServer(80);
 //WebSocketsServer webSocketsServer = WebSocketsServer(81);
 ESP8266HTTPUpdateServer httpUpdateServer;
 
 #include "FSBrowser.h"
 
-#define DATA_PIN      14//D5
+#define DATA_PIN      14 //is it pin 14, or 12?
 #define LED_TYPE      WS2811
-#define COLOR_ORDER   RGB
+#define COLOR_ORDER   GRB //hypertube uses GRB
 #define NUM_LEDS      200
 
 #define MILLI_AMPS         2000 // IMPORTANT: set the max milli-Amps of your power supply (4A = 4000mA)
 #define FRAMES_PER_SECOND  120  // here you can control the speed. With the Access Point / Web Server the animations run a bit slower.
 
-const bool apMode = false; //AP mode turns the feather into a wifi router you can connect to directly
+String nameString;
 
-#include "Secrets.h" // this file is intentionally not included in the sketch, so nobody accidentally commits their secret information.
-// create a Secrets.h file with the following:
-
-// AP mode password
-// const char WiFiAPPSK[] = "your-password";
-
-// Wi-Fi network to connect to (if not in AP mode)
-// char* ssid = "your-ssid";
-// char* password = "your-password";
-
+#include "Ping.h"
 
 CRGB leds[NUM_LEDS];
 
@@ -139,12 +135,17 @@ typedef PatternAndName PatternAndNameList[];
 
 #include "Twinkles.h"
 #include "TwinkleFOX.h"
+#include "PridePlayground.h"
+#include "ColorWavesPlayground.h"
 
 // List of patterns to cycle through.  Each is defined as a separate function below.
 
 PatternAndNameList patterns = {
   { pride,                  "Pride" },
   { colorWaves,             "Color Waves" },
+
+  { pridePlayground,        "Pride Playground" },
+  { colorWavesPlayground,   "Color Waves Playground" },
 
   // twinkle patterns
   { rainbowTwinkles,        "Rainbow Twinkles" },
@@ -190,36 +191,36 @@ typedef struct {
 typedef PaletteAndName PaletteAndNameList[];
 
 const CRGBPalette16 palettes[] = {
-  RainbowColors_p,
-  RainbowStripeColors_p,
-  CloudColors_p,
-  LavaColors_p,
-  OceanColors_p,
-  ForestColors_p,
-  PartyColors_p,
-  HeatColors_p
+    RainbowColors_p,
+    RainbowStripeColors_p,
+    CloudColors_p,
+    LavaColors_p,
+    OceanColors_p,
+    ForestColors_p,
+    PartyColors_p,
+    HeatColors_p
 };
 
 const uint8_t paletteCount = ARRAY_SIZE(palettes);
 
 const String paletteNames[paletteCount] = {
-  "Rainbow",
-  "Rainbow Stripe",
-  "Cloud",
-  "Lava",
-  "Ocean",
-  "Forest",
-  "Party",
-  "Heat",
+    "Rainbow",
+    "Rainbow Stripe",
+    "Cloud",
+    "Lava",
+    "Ocean",
+    "Forest",
+    "Party",
+    "Heat",
 };
 
 #include "Fields.h"
 
 void setup() {
+  WiFi.mode(WIFI_STA); // explicitly set mode, esp defaults to STA+AP    
   WiFi.setSleepMode(WIFI_NONE_SLEEP);
 
   Serial.begin(115200);
-  delay(100);
   Serial.setDebugOutput(true);
 
   FastLED.addLeds<LED_TYPE, DATA_PIN, COLOR_ORDER>(leds, NUM_LEDS);         // for WS2812 (Neopixel)
@@ -262,91 +263,56 @@ void setup() {
     Serial.printf("\n");
   }
 
-  //disabled due to https://github.com/jasoncoon/esp8266-fastled-webserver/issues/62
-  //initializeWiFi();
+  // Do a little work to get a unique-ish name. Get the
+  // last two bytes of the MAC (HEX'd)":
+  uint8_t mac[WL_MAC_ADDR_LENGTH];
+  WiFi.softAPmacAddress(mac);
+  String macID = String(mac[WL_MAC_ADDR_LENGTH - 2], HEX) +
+                 String(mac[WL_MAC_ADDR_LENGTH - 1], HEX);
+  macID.toUpperCase();
 
-  if (apMode)
-  {
-    WiFi.mode(WIFI_AP);
+  nameString = "ESP8266-" + macID;
 
-    // Do a little work to get a unique-ish name. Append the
-    // last two bytes of the MAC (HEX'd) to "Thing-":
-    uint8_t mac[WL_MAC_ADDR_LENGTH];
-    WiFi.softAPmacAddress(mac);
-    String macID = String(mac[WL_MAC_ADDR_LENGTH - 2], HEX) +
-                   String(mac[WL_MAC_ADDR_LENGTH - 1], HEX);
-    macID.toUpperCase();
-    String AP_NameString = "ESP8266 Thing " + macID;
+  //redefine hostname here - jk
+  nameString = "hypertube";
 
-    char AP_NameChar[AP_NameString.length() + 1];
-    memset(AP_NameChar, 0, AP_NameString.length() + 1);
+  char nameChar[nameString.length() + 1];
+  memset(nameChar, 0, nameString.length() + 1);
 
-    for (int i = 0; i < AP_NameString.length(); i++)
-      AP_NameChar[i] = AP_NameString.charAt(i);
+  for (int i = 0; i < nameString.length(); i++)
+    nameChar[i] = nameString.charAt(i);
 
-    WiFi.softAP(AP_NameChar, WiFiAPPSK);
+  Serial.printf("Name: %s\n", nameChar );
 
-    Serial.printf("Connect to Wi-Fi access point: %s\n", AP_NameChar);
-    Serial.println("and open http://192.168.4.1 in your browser");
+  // reset settings - wipe credentials for testing
+  // wifiManager.resetSettings();
+
+  
+  wifiManager.setConfigPortalBlocking(false);
+
+  //WiFi.softAP(nameString, "apModePassword");
+
+  //automatically connect using saved credentials if they exist
+  //If connection fails it starts an access point with the specified name
+  if(wifiManager.autoConnect(nameChar)){
+    Serial.println("Wi-Fi connected");
   }
-  else
-  {
-    WiFi.mode(WIFI_STA);
-   // WiFi.setAutoConnect(false);
-    Serial.printf("Connecting to %s\n", ssid);
-    String h = "light";
-
-//**SET UP HOSTNAME******
-        
-     WiFi.hostname(h);
-     //MDNS.begin(h);
-
-      //Serial.println("hostname is set to:");
-      //Serial.print(WiFi.hostname());
-
-      // WiFi.begin(ssid, password);
-
-       
-      
-        // Start TCP (HTTP) server
-     //   server.begin();
-       // Serial.println("TCP server started");
-      
-      
-     
-   
-
-    //how is it already connected? if wifi.begin has not been called yet?
-    //some kinda auto-connect happening?
-    //if (String(WiFi.SSID()) != String(ssid)) {
-      WiFi.begin(ssid, password);
-    //}
-
-    // Wait for connection
-        while (WiFi.status() != WL_CONNECTED) {
-          delay(500);
-          Serial.print(".");
-        }
-
-       if (!MDNS.begin(h)) {
-      Serial.println("Error setting up MDNS responder!");
-          while (1) {
-            delay(1000);
-          }
-        }
-    
+  else {
+    Serial.println("Wi-Fi manager portal running");
   }
-
+  
   httpUpdateServer.setup(&webServer);
 
   webServer.on("/all", HTTP_GET, []() {
     String json = getFieldsJson(fields, fieldCount);
-    webServer.send(200, "text/json", json);
+    webServer.sendHeader("Access-Control-Allow-Origin", "*");
+    webServer.send(200, "application/json", json);
   });
 
   webServer.on("/fieldValue", HTTP_GET, []() {
     String name = webServer.arg("name");
     String value = getFieldValue(name, fields, fieldCount);
+    webServer.sendHeader("Access-Control-Allow-Origin", "*");
     webServer.send(200, "text/json", value);
   });
 
@@ -354,26 +320,34 @@ void setup() {
     String name = webServer.arg("name");
     String value = webServer.arg("value");
     String newValue = setFieldValue(name, value, fields, fieldCount);
+    webServer.sendHeader("Access-Control-Allow-Origin", "*");
     webServer.send(200, "text/json", newValue);
   });
 
   webServer.on("/power", HTTP_POST, []() {
     String value = webServer.arg("value");
     setPower(value.toInt());
+    webServer.sendHeader("Access-Control-Allow-Origin", "*");
     sendInt(power);
   });
 
   webServer.on("/cooling", HTTP_POST, []() {
     String value = webServer.arg("value");
     cooling = value.toInt();
+    EEPROM.write(11, cooling);
+    EEPROM.commit();
     broadcastInt("cooling", cooling);
+    webServer.sendHeader("Access-Control-Allow-Origin", "*");
     sendInt(cooling);
   });
 
   webServer.on("/sparking", HTTP_POST, []() {
     String value = webServer.arg("value");
     sparking = value.toInt();
+    EEPROM.write(12, sparking);
+    EEPROM.commit();
     broadcastInt("sparking", sparking);
+    webServer.sendHeader("Access-Control-Allow-Origin", "*");
     sendInt(sparking);
   });
 
@@ -381,6 +355,7 @@ void setup() {
     String value = webServer.arg("value");
     speed = value.toInt();
     broadcastInt("speed", speed);
+    webServer.sendHeader("Access-Control-Allow-Origin", "*");
     sendInt(speed);
   });
 
@@ -389,7 +364,10 @@ void setup() {
     twinkleSpeed = value.toInt();
     if (twinkleSpeed < 0) twinkleSpeed = 0;
     else if (twinkleSpeed > 8) twinkleSpeed = 8;
+    EEPROM.write(9, twinkleSpeed);
+    EEPROM.commit();
     broadcastInt("twinkleSpeed", twinkleSpeed);
+    webServer.sendHeader("Access-Control-Allow-Origin", "*");
     sendInt(twinkleSpeed);
   });
 
@@ -398,8 +376,22 @@ void setup() {
     twinkleDensity = value.toInt();
     if (twinkleDensity < 0) twinkleDensity = 0;
     else if (twinkleDensity > 8) twinkleDensity = 8;
+    EEPROM.write(10, twinkleDensity);
+    EEPROM.commit();
     broadcastInt("twinkleDensity", twinkleDensity);
+    webServer.sendHeader("Access-Control-Allow-Origin", "*");
     sendInt(twinkleDensity);
+  });
+
+  webServer.on("/coolLikeIncandescent", HTTP_POST, []() {
+    String value = webServer.arg("value");
+    coolLikeIncandescent = value.toInt();
+    if (coolLikeIncandescent < 0) coolLikeIncandescent = 0;
+    else if (coolLikeIncandescent > 1) coolLikeIncandescent = 1;
+    EEPROM.write(13, coolLikeIncandescent);
+    EEPROM.commit();
+    broadcastInt("coolLikeIncandescent", coolLikeIncandescent);
+    sendInt(coolLikeIncandescent);
   });
 
   webServer.on("/solidColor", HTTP_POST, []() {
@@ -408,47 +400,55 @@ void setup() {
     String b = webServer.arg("b");
     setSolidColor(r.toInt(), g.toInt(), b.toInt());
     sendString(String(solidColor.r) + "," + String(solidColor.g) + "," + String(solidColor.b));
+    webServer.sendHeader("Access-Control-Allow-Origin", "*");
   });
 
   webServer.on("/pattern", HTTP_POST, []() {
     String value = webServer.arg("value");
     setPattern(value.toInt());
+    webServer.sendHeader("Access-Control-Allow-Origin", "*");
     sendInt(currentPatternIndex);
   });
 
   webServer.on("/patternName", HTTP_POST, []() {
     String value = webServer.arg("value");
     setPatternName(value);
+    webServer.sendHeader("Access-Control-Allow-Origin", "*");
     sendInt(currentPatternIndex);
   });
 
   webServer.on("/palette", HTTP_POST, []() {
     String value = webServer.arg("value");
     setPalette(value.toInt());
+    webServer.sendHeader("Access-Control-Allow-Origin", "*");
     sendInt(currentPaletteIndex);
   });
 
   webServer.on("/paletteName", HTTP_POST, []() {
     String value = webServer.arg("value");
     setPaletteName(value);
+    webServer.sendHeader("Access-Control-Allow-Origin", "*");
     sendInt(currentPaletteIndex);
   });
 
   webServer.on("/brightness", HTTP_POST, []() {
     String value = webServer.arg("value");
     setBrightness(value.toInt());
+    webServer.sendHeader("Access-Control-Allow-Origin", "*");
     sendInt(brightness);
   });
 
   webServer.on("/autoplay", HTTP_POST, []() {
     String value = webServer.arg("value");
     setAutoplay(value.toInt());
+    webServer.sendHeader("Access-Control-Allow-Origin", "*");
     sendInt(autoplay);
   });
 
   webServer.on("/autoplayDuration", HTTP_POST, []() {
     String value = webServer.arg("value");
     setAutoplayDuration(value.toInt());
+    webServer.sendHeader("Access-Control-Allow-Origin", "*");
     sendInt(autoplayDuration);
   });
 
@@ -465,16 +465,17 @@ void setup() {
   //first callback is called after the request has ended with all parsed arguments
   //second callback handles file uploads at that location
   webServer.on("/edit", HTTP_POST, []() {
-    webServer.send(200, "text/plain", "");
-  }, handleFileUpload);
+        webServer.sendHeader("Access-Control-Allow-Origin", "*");
+        webServer.send(200, "text/plain", "");
+      }, handleFileUpload);
 
   webServer.serveStatic("/", SPIFFS, "/", "max-age=86400");
 
+  MDNS.begin(nameChar);
+  MDNS.setHostname(nameChar);
+
   webServer.begin();
   Serial.println("HTTP web server started");
-
-    // Add service to MDNS-SD
-    MDNS.addService("http", "tcp", 80);
 
   //  webSocketsServer.begin();
   //  webSocketsServer.onEvent(webSocketEvent);
@@ -506,23 +507,16 @@ void broadcastString(String name, String value)
 }
 
 void loop() {
-  MDNS.update(); //THIS IS WHAT DID IT!!!
-  
   // Add entropy to random number generator; we use a lot of it.
   random16_add_entropy(random(65535));
 
-  //  dnsServer.processNextRequest();
   //  webSocketsServer.loop();
+
+  wifiManager.process();
   webServer.handleClient();
+  MDNS.update();
 
-  //  handleIrInput();
-
-  if (power == 0) {
-    fill_solid(leds, NUM_LEDS, CRGB::Black);
-    FastLED.show();
-    // FastLED.delay(15);
-    return;
-  }
+  //  timeClient.update();
 
   static bool hasConnected = false;
   EVERY_N_SECONDS(1) {
@@ -532,13 +526,27 @@ void loop() {
     }
     else if (!hasConnected) {
       hasConnected = true;
+      MDNS.begin(nameString);
+      MDNS.setHostname(nameString);
+      webServer.begin();
+      Serial.println("HTTP web server started");
       Serial.print("Connected! Open http://");
       Serial.print(WiFi.localIP());
-      Serial.println(" in your browser");
-
-      Serial.print("Hostname is: ");
-     Serial.println(WiFi.hostname());
+      Serial.print(" or http://");
+      Serial.print(nameString);
+      Serial.println(".local in your browser");
     }
+  }
+
+  checkPingTimer();
+
+  //  handleIrInput();
+
+  if (power == 0) {
+    fill_solid(leds, NUM_LEDS, CRGB::Black);
+    FastLED.show();
+    delay(1000 / FRAMES_PER_SECOND);
+    return;
   }
 
   // EVERY_N_SECONDS(10) {
@@ -569,6 +577,8 @@ void loop() {
 
   // insert a delay to keep the framerate modest
   FastLED.delay(1000 / FRAMES_PER_SECOND);
+  //delay(1000 / FRAMES_PER_SECOND);
+
 }
 
 //void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
@@ -847,6 +857,14 @@ void loadSettings()
     currentPaletteIndex = 0;
   else if (currentPaletteIndex >= paletteCount)
     currentPaletteIndex = paletteCount - 1;
+
+  twinkleSpeed = EEPROM.read(9);
+  twinkleDensity = EEPROM.read(10);
+
+  cooling = EEPROM.read(11);
+  sparking = EEPROM.read(12);
+
+  coolLikeIncandescent = EEPROM.read(13);
 }
 
 void setPower(uint8_t value)
@@ -1089,7 +1107,7 @@ void juggle()
   static uint8_t thisbright = 255; // How bright should the LED/display be.
   static uint8_t   basebeat =   5; // Higher = faster movement.
 
-  static uint8_t lastSecond =  99;  // Static variable, means it's only defined once. This is our 'debounce' variable.
+ static uint8_t lastSecond =  99;  // Static variable, means it's only defined once. This is our 'debounce' variable.
   uint8_t secondHand = (millis() / 1000) % 30; // IMPORTANT!!! Change '30' to a different value to change duration of the loop.
 
   if (lastSecond != secondHand) { // Debounce to make sure we're not repeating an assignment.
