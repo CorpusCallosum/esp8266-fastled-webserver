@@ -137,8 +137,8 @@ typedef PatternAndName PatternAndNameList[];
 
 #include "Twinkles.h"
 #include "TwinkleFOX.h"
-#include "PridePlayground.h"
-#include "ColorWavesPlayground.h"
+//#include "PridePlayground.h"
+//#include "ColorWavesPlayground.h"
 
 // List of patterns to cycle through.  Each is defined as a separate function below.
 
