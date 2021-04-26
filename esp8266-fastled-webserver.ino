@@ -146,9 +146,6 @@ PatternAndNameList patterns = {
   { pride,                  "Pride" },
   { colorWaves,             "Color Waves" },
 
-  { pridePlayground,        "Pride Playground" },
-  { colorWavesPlayground,   "Color Waves Playground" },
-
   // twinkle patterns
   { rainbowTwinkles,        "Rainbow Twinkles" },
   { snowTwinkles,           "Snow Twinkles" },
