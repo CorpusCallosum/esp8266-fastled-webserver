@@ -16,11 +16,13 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-//interrupts need to be on when setting up WIFI in AP mode,
-//turn off interrupts after wifi is set up, to fix flickering
-#define FASTLED_ALLOW_INTERRUPTS 0
+//#define FASTLED_ALLOW_INTERRUPTS 1
 //#define INTERRUPT_THRESHOLD 1
-#define FASTLED_INTERRUPT_RETRY_COUNT 1
+#define FASTLED_INTERRUPT_RETRY_COUNT 0
+
+//disable interrupts to fix flickering - https://github.com/FastLED/FastLED/wiki/Interrupt-problems
+#define FASTLED_ALLOW_INTERRUPTS 0 
+
 
 #include <FastLED.h>
 FASTLED_USING_NAMESPACE
@@ -57,12 +59,12 @@ ESP8266HTTPUpdateServer httpUpdateServer;
 
 #include "FSBrowser.h"
 
-#define DATA_PIN      14 //D5
+#define DATA_PIN      14 //is it pin 14, or 12?
 #define LED_TYPE      WS2811
-#define COLOR_ORDER   GRB
-#define NUM_LEDS      75 
+#define COLOR_ORDER   GRB //hypertube uses GRB
+#define NUM_LEDS      200
 
-#define MILLI_AMPS         3000 // IMPORTANT: set the max milli-Amps of your power supply (4A = 4000mA)
+#define MILLI_AMPS         2400 // IMPORTANT: set the max milli-Amps of your power supply (4A = 4000mA)
 #define FRAMES_PER_SECOND  120  // here you can control the speed. With the Access Point / Web Server the animations run a bit slower.
 
 String nameString;
@@ -135,17 +137,14 @@ typedef PatternAndName PatternAndNameList[];
 
 #include "Twinkles.h"
 #include "TwinkleFOX.h"
-#include "PridePlayground.h"
-#include "ColorWavesPlayground.h"
+//#include "PridePlayground.h"
+//#include "ColorWavesPlayground.h"
 
 // List of patterns to cycle through.  Each is defined as a separate function below.
 
 PatternAndNameList patterns = {
   { pride,                  "Pride" },
   { colorWaves,             "Color Waves" },
-
-  { pridePlayground,        "Pride Playground" },
-  { colorWavesPlayground,   "Color Waves Playground" },
 
   // twinkle patterns
   { rainbowTwinkles,        "Rainbow Twinkles" },
@@ -272,8 +271,8 @@ void setup() {
   macID.toUpperCase();
 
   nameString = "ESP8266-" + macID;
-  
-  //!!! redefine hostname - jk !!!
+
+  //redefine hostname here - jk
   nameString = "hypertube";
 
   char nameChar[nameString.length() + 1];
@@ -287,7 +286,10 @@ void setup() {
   // reset settings - wipe credentials for testing
   // wifiManager.resetSettings();
 
+  
   wifiManager.setConfigPortalBlocking(false);
+
+  //WiFi.softAP(nameString, "apModePassword");
 
   //automatically connect using saved credentials if they exist
   //If connection fails it starts an access point with the specified name
@@ -574,6 +576,8 @@ void loop() {
 
   // insert a delay to keep the framerate modest
   FastLED.delay(1000 / FRAMES_PER_SECOND);
+  //delay(1000 / FRAMES_PER_SECOND);
+
 }
 
 //void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
